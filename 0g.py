@@ -1,14 +1,23 @@
 import requests
 import time
-from colorama import init, Fore, Back, Style
+from colorama import init, Fore
+from web3 import Web3
 
 # Inisialisasi Colorama
 init(autoreset=True)
 
 API_KEY = 'APIKEY 2CAPTCHA'  # Ganti dengan API key 2Captcha Anda
-HCAPTCHA_SITEKEY = '1230eb62-f50c-4da4-a736-da5c3c342e8e'  
-FAUCET_URL = 'https://992dkn4ph6.execute-api.us-west-1.amazonaws.com/' 
-MAX_RETRIES = 2  
+HCAPTCHA_SITEKEY = '1230eb62-f50c-4da4-a736-da5c3c342e8e'
+FAUCET_URL = 'https://992dkn4ph6.execute-api.us-west-1.amazonaws.com/'
+MAX_RETRIES = 2
+
+# Wallet utama Anda (gunakan private key untuk mengirimkan transaksi)
+MAIN_WALLET_PRIVATE_KEY = 'YOUR_MAIN_WALLET_PRIVATE_KEY'
+MAIN_WALLET_ADDRESS = 'YOUR_MAIN_WALLET_ADDRESS'
+
+# URL RPC Ethereum
+WEB3_PROVIDER = 'https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID'
+w3 = Web3(Web3.HTTPProvider(WEB3_PROVIDER))
 
 def read_addresses():
     with open('wallet.txt', 'r') as file:
@@ -36,7 +45,7 @@ def solve_hcaptcha(proxy):
         'method': 'hcaptcha',
         'sitekey': HCAPTCHA_SITEKEY,
         'pageurl': FAUCET_URL,
-        'json': 1  
+        'json': 1
     }
 
     print(Fore.YELLOW + "Mengirim permintaan ke 2Captcha API untuk menyelesaikan hCaptcha...")
@@ -57,7 +66,7 @@ def solve_hcaptcha(proxy):
             }
 
             print(Fore.YELLOW + "Menunggu penyelesaian captcha...")
-            time.sleep(10) 
+            time.sleep(10)
             while True:
                 response_result = requests.get(result_url, params=params_result, proxies={'http': proxy, 'https': proxy})
                 result_data = response_result.json()
@@ -68,7 +77,7 @@ def solve_hcaptcha(proxy):
                     return captcha_token
                 elif result_data.get('request') == 'CAPCHA_NOT_READY':
                     print(Fore.YELLOW + "Captcha belum siap, menunggu...")
-                    time.sleep(5)  
+                    time.sleep(5)
                 else:
                     print(Fore.RED + f"Gagal menyelesaikan captcha: {result_data}")
                     return None
@@ -111,18 +120,44 @@ def claim_faucet(address, hcaptcha_token, proxy):
                 explorer_url = f"https://chainscan-newton.0g.ai/tx/{tx_hash}"
                 print(Fore.BLUE + f"Link Explorer: {explorer_url}")
 
+                # Kirim A0GI ke wallet utama
+                send_to_main_wallet(tx_hash)
+
                 with open('log.txt', 'a') as log_file:
                     log_file.write(f"Address: {address}, Proxy: {proxy}, Tx Hash: {tx_hash}, Explorer: {explorer_url}\n")
             else:
                 print(Fore.RED + "Hash transaksi tidak ditemukan dalam respons.")
-            return True 
+            return True
         else:
             print(Fore.RED + f"Gagal claim faucet. Status code: {response.status_code}")
             print(Fore.RED + "Response:", response.text)
-            return False  
+            return False
     except Exception as e:
         print(Fore.RED + f"Terjadi kesalahan saat mengirim permintaan: {e}")
-        return False 
+        return False
+
+def send_to_main_wallet(tx_hash):
+    # Persiapkan transaksi untuk mengirim A0GI ke wallet utama
+    nonce = w3.eth.getTransactionCount(MAIN_WALLET_ADDRESS)
+
+    # Konfigurasi transaksi (ganti sesuai dengan token yang digunakan)
+    tx = {
+        'to': MAIN_WALLET_ADDRESS,
+        'value': w3.toWei(0.01, 'ether'),  # Ganti sesuai dengan jumlah yang ingin Anda kirimkan
+        'gas': 2000000,
+        'gasPrice': w3.toWei('20', 'gwei'),
+        'nonce': nonce
+    }
+
+    # Tandatangani transaksi
+    signed_tx = w3.eth.account.signTransaction(tx, MAIN_WALLET_PRIVATE_KEY)
+
+    # Kirim transaksi
+    try:
+        tx_hash = w3.eth.sendRawTransaction(signed_tx.rawTransaction)
+        print(Fore.GREEN + f"Transaksi berhasil dikirim, hash transaksi: {tx_hash.hex()}")
+    except Exception as e:
+        print(Fore.RED + f"Gagal mengirim transaksi: {e}")
 
 def main():
     addresses = read_addresses()
@@ -149,16 +184,16 @@ def main():
             hcaptcha_token = solve_hcaptcha(proxy)
             if not hcaptcha_token:
                 print(Fore.RED + f"Tidak dapat melanjutkan untuk address {address} tanpa token hCaptcha.")
-                break 
+                break
 
             success = claim_faucet(address, hcaptcha_token, proxy)
             if success:
-                break  
+                break
             else:
                 retry_count += 1
                 if retry_count < MAX_RETRIES:
                     print(Fore.YELLOW + f"Percobaan gagal. Mencoba lagi ({retry_count + 1}/{MAX_RETRIES})...")
-                    time.sleep(5) 
+                    time.sleep(5)
                 else:
                     print(Fore.RED + f"Gagal claim faucet untuk address {address} setelah {MAX_RETRIES} percobaan.")
 
